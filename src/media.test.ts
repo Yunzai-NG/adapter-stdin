@@ -89,7 +89,8 @@ describe("媒体解析", () => {
       segmentType: "file",
       publicBase: undefined
     })
-    expect(resolved.path).toBe(join(dir, "t.bin"))
+    expect(resolved.path.startsWith(join(dir, "t-"))).toBe(true)
+    expect(resolved.path.endsWith(".bin")).toBe(true)
     expect(new Uint8Array(await readFile(resolved.path))).toEqual(data)
   })
 
@@ -110,7 +111,8 @@ describe("媒体解析", () => {
       { kind: "buffer", data: new Uint8Array([0]), name: "archive.zip", mime: "application/octet-stream" },
       { mediaDir: dir, segmentType: "file", publicBase: undefined }
     )
-    expect(resolved.path.endsWith("archive.zip")).toBe(true)
+    expect(resolved.path.endsWith(".zip")).toBe(true)
+    expect(resolved.path).toContain("archive-")
   })
 
   it("名字里带路径分隔符时只取文件名", async () => {
@@ -139,6 +141,76 @@ describe("媒体解析", () => {
       segmentType: "image",
       publicBase: "http://127.0.0.1:25365/plugin/adapter-stdin/media"
     })
-    expect(resolved.url).toBe("http://127.0.0.1:25365/plugin/adapter-stdin/media/u.png")
+    expect(resolved.url.startsWith("http://127.0.0.1:25365/plugin/adapter-stdin/media/u-")).toBe(true)
+  })
+})
+
+/**
+ * 同名媒体不得相互覆盖
+ *
+ * **缺陷现场：`pickName` 原先是"调用方给了名字就直接用"。** 而 `MediaRef.name` 的语义是
+ * 「**建议**文件名」而非"必须叫这个名"（类型定义里原文就是"建议"）。渲染器每次出图给的都是
+ * 同一个名字（`<插件名>-0.jpeg`），于是后一张静默覆盖前一张 —— 终端里那句
+ * 「发送图片 路径: …/yenai-state-0.jpeg」永远是同一个文件，看起来像"图片保存的是固定的
+ * 那一张"，实则是每次写到了同一个位置。实机上正是这么报上来的。
+ *
+ * 故这里连发两张**同名**图，断言落地成两个**不同**的文件，且两张的内容都还在。
+ */
+describe("同名媒体不覆盖", () => {
+  let dir = ""
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "stdin-media-dup-"))
+  })
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  it("**两张同名的图落成两个文件，先发的那张还在**", async () => {
+    const opts = { mediaDir: dir, segmentType: "image", publicBase: undefined }
+    const first = await resolveMedia(
+      { kind: "buffer", data: new Uint8Array([1, 1, 1]), name: "yenai-state-0.jpeg", mime: "image/jpeg" },
+      opts
+    )
+    // 时间戳是秒以下的分辨率，隔一拍才保证不同
+    await new Promise(resolve => setTimeout(resolve, 5))
+    const second = await resolveMedia(
+      { kind: "buffer", data: new Uint8Array([2, 2, 2]), name: "yenai-state-0.jpeg", mime: "image/jpeg" },
+      opts
+    )
+
+    expect(second.path, "第二张覆盖了第一张 —— 这正是那个缺陷").not.toBe(first.path)
+    expect(new Uint8Array(await readFile(first.path))).toEqual(new Uint8Array([1, 1, 1]))
+    expect(new Uint8Array(await readFile(second.path))).toEqual(new Uint8Array([2, 2, 2]))
+  })
+
+  it("文件名里看得出原名，也带时间戳与内容摘要", async () => {
+    // 照 TRSS-Yunzai 的 stdin：`mt11wv18.cadfa939.png` —— 时间戳保证不重名，
+    // 摘要让同一张图在目录里看得出是一份
+    const resolved = await resolveMedia(
+      { kind: "buffer", data: new Uint8Array([7, 7]), name: "状态图.jpeg", mime: "image/jpeg" },
+      { mediaDir: dir, segmentType: "image", publicBase: undefined }
+    )
+    const file = resolved.path.slice(dir.length + 1)
+    // <原名>-<36 进制时间戳>.<8 位摘要><扩展名>
+    expect(file).toMatch(/^状态图-[0-9a-z]+\.[0-9a-f]{8}\.jpeg$/)
+  })
+
+  it("没给名字时也带时间戳，不叫 `media-…` 那种共用名", async () => {
+    const resolved = await resolveMedia(
+      { kind: "base64", base64: Buffer.from("x").toString("base64"), mime: "image/png" },
+      { mediaDir: dir, segmentType: "image", publicBase: undefined }
+    )
+    expect(resolved.path.slice(dir.length + 1)).toMatch(/^[0-9a-z]+\.[0-9a-f]{8}\.png$/)
+  })
+
+  it("内容完全相同 → 摘要相同，只有时间戳在区分", async () => {
+    const opts = { mediaDir: dir, segmentType: "image", publicBase: undefined }
+    const a = await resolveMedia({ kind: "buffer", data: new Uint8Array([5, 5]), name: "a.png" }, opts)
+    const b = await resolveMedia({ kind: "buffer", data: new Uint8Array([5, 5]), name: "b.png" }, opts)
+    const digest = (p: string): string => p.slice(p.lastIndexOf(".") - 8, p.lastIndexOf("."))
+
+    expect(digest(a.path)).toBe(digest(b.path))
   })
 })

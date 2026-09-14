@@ -12,6 +12,7 @@
  */
 import { mkdir, writeFile } from "node:fs/promises"
 import { basename, extname, join } from "node:path"
+import { md5 } from "@yunzai-ng/core"
 import type { MediaRef } from "@yunzai-ng/types"
 
 /** 由 MIME 推断的扩展名 */
@@ -75,23 +76,46 @@ function pickExt(mime: string | undefined, segmentType: string): string {
 }
 
 /**
- * 取文件名，保留原扩展名
+ * 取文件名
  *
- * 给定的名字优先于按 MIME 推断 —— 文件段的白名单常常依赖扩展名，把它换成 `.bin`
- * 会让"发一个 zip 给机器人"这类调试变得没法做。
+ * **名字里必须带时间戳与内容摘要，不能直接沿用调用方给的名字。**
+ * `MediaRef.name` 的语义是「**建议**文件名」（类型定义里原文如此），而不是"必须叫这个名"。
+ * 照搬的后果是：渲染器每次出图给的都是同一个名字（`<插件名>-0.jpeg`），于是后一张
+ * 静默覆盖前一张，终端里那句「发送图片 路径: …/yenai-state-0.jpeg」永远是同一个文件 ——
+ * 看起来像"图片保存的是固定的那一张"，实则是每次都写到了同一个位置。
+ *
+ * 命名照 TRSS-Yunzai 的 stdin 适配器：`<36 进制时间戳>.<md5 前 8 位><扩展名>`，
+ * 例如 `mt11wv18.cadfa939.png`。时间戳保证不重名，摘要让同一张图在目录里看得出是一份。
+ *
+ * 调用方给的名字仍保留为可读的一段（`<原名去扩展名>-<时间戳>.<摘要><扩展名>`）：
+ * 文件段的白名单常常依赖扩展名，而"发一个 zip 给机器人"这类调试里，能一眼看出
+ * 它是哪个插件发的也有用。
  * @param name 建议文件名
+ * @param data 字节内容，用于取摘要
  * @param mime MIME 类型
  * @param segmentType 段类型
  * @returns 文件名（不含路径分隔符）
  */
-function pickName(name: string | undefined, mime: string | undefined, segmentType: string): string {
-  if (name !== undefined && name !== "") {
-    // 只取 basename：调用方给的名字可能带路径，而它最终落在本插件的媒体目录里
-    const safe = basename(name).replace(/[/\\]/g, "_")
-    if (extname(safe) !== "") return safe
-    return `${safe}${pickExt(mime, segmentType)}`
-  }
-  return `media-${Date.now().toString(36)}${pickExt(mime, segmentType)}`
+function pickName(
+  name: string | undefined,
+  data: Buffer,
+  mime: string | undefined,
+  segmentType: string
+): string {
+  const stamp = Date.now().toString(36)
+  const digest = md5(data.toString("latin1")).slice(0, 8)
+  const ext = pickExt(mime, segmentType)
+
+  if (name === undefined || name === "") return `${stamp}.${digest}${ext}`
+
+  // 只取 basename：调用方给的名字可能带路径，而它最终落在本插件的媒体目录里
+  const safe = basename(name).replace(/[/\\]/g, "_")
+  const stem = safe.slice(0, safe.length - extname(safe).length)
+  // 原名整段是扩展名、或名字太长时退到不带原名的那一种
+  if (stem === "" || stem.length > 64) return `${stamp}.${digest}${ext}`
+
+  const kept = extname(safe) === "" ? ext : extname(safe)
+  return `${stem}-${stamp}.${digest}${kept}`
 }
 
 /**
@@ -139,7 +163,7 @@ export async function resolveMedia(ref: MediaRef, opts: MediaResolveOptions): Pr
     case "buffer":
     case "base64": {
       const data = ref.kind === "buffer" ? Buffer.from(ref.data) : Buffer.from(ref.base64, "base64")
-      const name = pickName(ref.kind === "buffer" ? ref.name : undefined, ref.mime, opts.segmentType)
+      const name = pickName(ref.kind === "buffer" ? ref.name : undefined, data, ref.mime, opts.segmentType)
       const file = join(opts.mediaDir, name)
       await mkdir(opts.mediaDir, { recursive: true })
       await writeFile(file, data)
