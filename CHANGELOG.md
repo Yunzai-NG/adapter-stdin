@@ -2,6 +2,13 @@
 
 格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+## 未发布
+
+### 变更
+
+- 入口不再写 `version` 与 `description`，一律取 package.json，发版只改那一处。`name` 仍写在入口里：
+  省掉它要内核 0.6.5。
+
 ## 0.1.0 — 2026-09-14
 
 首个版本。把终端本身当作一个账号接进内核：从标准输入读一行即一封私聊消息，机器人的回复打印

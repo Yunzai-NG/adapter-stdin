@@ -47,9 +47,8 @@ export { PLATFORM } from "./platform.js"
  * 本插件未声明 configSchema，故配置类型即 `definePlugin` 在这一情形下推出的 `Record<string, never>`。
  */
 const plugin: PluginDefinition<Record<string, never>> = definePlugin({
+  // 版本与说明取 package.json；name 留着，省掉要内核 0.6.5
   name: "adapter-stdin",
-  version: "0.1.0",
-  description: "标准输入适配器：把终端本身当作一个账号，用于没有 QQ 环境时调试命令与插件",
   // 与其他适配器一致：注册越早，"适配器未注册"的时间窗口越短
   priority: 10,
 
