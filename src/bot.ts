@@ -192,7 +192,7 @@ export function createStdinBot(account: StdinAccount, host: AdapterHost, deps: S
    * @param text 输入行
    */
   const submitLine = (text: string): void => {
-    history.append(text)
+    if (account.saveHistory) history.append(text)
 
     const time = Date.now()
     const user: UserInfo = { uid: senderId, name: account.label }
@@ -246,22 +246,7 @@ export function createStdinBot(account: StdinAccount, host: AdapterHost, deps: S
     })
 
     iface.on("line", line => {
-      /*
-       * 收到输入先落一行日志，**空行也落**。
-       *
-       * 这是终端侧唯一一个"输入侧活着"的可见信号，TRSS 用 `系统消息: <文本>`
-       * 做同一件事。少了它，一个"敲命令没反应"的场景里使用者无从分辨是
-       * "输入没进来"还是"命令没匹配上" —— 而这两者的排查方向完全不同
-       * （前者查终端与适配器，后者查插件与正则）。
-       *
-       * 用 `mark` 级别而非 `info`：它是给人看的状态行，不是事件记录，
-       * 该在常规日志级别下就显示出来。空行时补一个占位词，否则日志里只有
-       * 一个光秃秃的前缀，看不出发生过什么。
-       */
-      host.logger.mark(`系统消息: ${line === "" ? "(空行)" : line}`)
-
-      // 回显：readline 在有提示符时会自己回显，没有提示符时（非终端）不会。
-      // 统一在这里补一次，使两种情形下历史记录的观感一致
+      host.logger.mark(`系统消息: ${line === "" ? "(空行)" : account.logInput ? line : "已收到终端输入"}`)
       if (account.echoInput && process.stderr.isTTY !== true) writeLine(line)
       submitLine(line)
     })
@@ -325,12 +310,12 @@ export function createStdinBot(account: StdinAccount, host: AdapterHost, deps: S
       if (account.enable) {
         host.logger.mark(
           `${this.nickname}(${selfId}) 已连接 —— 在终端直接输入即可与机器人对话` +
-            `（历史记录 ${historyFile}）`
+            (account.saveHistory ? `（历史记录 ${historyFile}）` : "")
         )
       }
 
       // 回读历史：纯粹给人看，放在最后且不阻塞任何东西
-      if (account.historySize > 0) {
+      if (account.logInput && account.historySize > 0) {
         const entries = tailHistory(await history.load(), account.historySize)
         if (entries.length > 0) {
           host.logger.info(`最近 ${entries.length} 条终端输入：`)

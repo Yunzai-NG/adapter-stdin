@@ -23,11 +23,40 @@
  */
 import { join } from "node:path"
 import { tmpdir } from "node:os"
-import { describe, expect, it } from "vitest"
+import { EventEmitter } from "node:events"
+import { createInterface } from "node:readline"
+import { createHistoryLog } from "./history.js"
+import { describe, expect, it, vi } from "vitest"
 import { fakeLogger } from "@yunzai-ng/core/testing"
 import type { AdapterHost, BotDriver, MessageContent, SendTarget } from "@yunzai-ng/types"
 import { createStdinBot, SENDER_ID, stdinUsable } from "./bot.js"
 import { validateAccount } from "./config.js"
+
+vi.mock("node:readline", () => ({ createInterface: vi.fn() }))
+vi.mock("./history.js", async importOriginal => ({ ...await importOriginal<typeof import("./history.js")>(), createHistoryLog: vi.fn() }))
+
+it.each([[false, false], [true, false], [false, true], [true, true]])("保存历史 %s 与正文日志 %s 互不依赖", async (saveHistory, logInput) => {
+  const iface = Object.assign(new EventEmitter(), { close: vi.fn() })
+  vi.mocked(createInterface).mockReturnValue(iface as unknown as ReturnType<typeof createInterface>)
+  const history = { file: "history", append: vi.fn(), load: vi.fn(async () => [{ time: 1, text: "旧输入样本" }]) }
+  vi.mocked(createHistoryLog).mockReturnValue(history)
+  const logger = fakeLogger()
+  const submit = vi.fn()
+  const host = { logger, submit, signal: new AbortController().signal } as unknown as AdapterHost
+  const driver = createStdinBot(validateAccount({ saveHistory, logInput }), host, { adapterId: "stdin", dataDir: "", mediaDir: "", publicBase: undefined })
+  vi.stubEnv("FORCE_TTY", "1")
+  try {
+    await driver.connect()
+    iface.emit("line", "当前输入样本")
+    expect(submit).toHaveBeenCalledWith(expect.objectContaining({ message: [{ type: "text", text: "当前输入样本" }] }))
+    expect(history.append.mock.calls.length).toBe(Number(saveHistory))
+    expect(history.load.mock.calls.length).toBe(Number(logInput))
+    for (const sample of ["旧输入样本", "当前输入样本"]) expect(logger.lines.join(" ").includes(sample)).toBe(logInput)
+  } finally {
+    await driver.disconnect()
+    vi.unstubAllEnvs()
+  }
+})
 
 /**
  * 用例里使用的账号 id

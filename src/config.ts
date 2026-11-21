@@ -55,12 +55,9 @@ export const ACCOUNT_SCHEMA = s.object({
 
   echoInput: s
     .boolean()
-    .default(true)
+    .default(false)
     .title("回显输入")
-    .desc(
-      "把敲下的每一行同时写进历史记录，重启后可用「↑」翻回。" +
-        "关闭后历史记录仍在写，只是不再注入 readline 的行缓冲"
-    )
+    .desc("非交互终端中也将输入正文回显到标准错误；与写日志、存历史无关")
     .order(4),
 
   catimg: s
@@ -85,6 +82,9 @@ export const ACCOUNT_SCHEMA = s.object({
     .desc("控制回复文本是否带 ANSI 颜色码。判定依据是标准错误而非标准输出：回复走前者")
     .group("终端")
     .order(11),
+
+  saveHistory: s.boolean().default(false).title("保存输入历史").desc("以明文追加非空输入到历史文件").group("历史").order(18),
+  logInput: s.boolean().default(false).title("记录输入正文").desc("允许当前输入和启动回读的历史正文进入日志").group("历史").order(19),
 
   historySize: s
     .number()

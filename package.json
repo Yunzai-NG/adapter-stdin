@@ -1,6 +1,6 @@
 {
   "name": "@yunzai-ng/adapter-stdin",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "标准输入适配器：把终端本身当作一个账号，用于没有 QQ 环境时调试命令与插件",
   "type": "module",
   "private": true,
@@ -42,8 +42,8 @@
     "verify": "pnpm run build && pnpm run typecheck:test && pnpm run lint && pnpm run test"
   },
   "peerDependencies": {
-    "@yunzai-ng/core": ">=0.2.0",
-    "@yunzai-ng/types": ">=0.1.1"
+    "@yunzai-ng/core": ">=0.8.0",
+    "@yunzai-ng/types": ">=0.5.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.18.0",
